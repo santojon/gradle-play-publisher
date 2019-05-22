@@ -5,6 +5,7 @@ import com.github.triplet.gradle.play.internal.AppDetail
 import com.github.triplet.gradle.play.internal.ImageType
 import com.github.triplet.gradle.play.internal.JsonFileFilter
 import com.github.triplet.gradle.play.internal.LISTINGS_PATH
+import com.github.triplet.gradle.play.internal.ListingDetail
 import com.github.triplet.gradle.play.internal.LocaleFileFilter
 import com.github.triplet.gradle.play.internal.PLAY_PATH
 import com.github.triplet.gradle.play.internal.PRODUCTS_PATH
@@ -18,7 +19,6 @@ import com.github.triplet.gradle.play.internal.normalized
 import com.github.triplet.gradle.play.internal.nullOrFull
 import com.github.triplet.gradle.play.internal.orNull
 import com.github.triplet.gradle.play.internal.playPath
-import org.gradle.api.Action
 import org.gradle.api.DefaultTask
 import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.InputFiles
@@ -77,11 +77,6 @@ open class GenerateResources @Inject constructor(
 
     private class Processor @Inject constructor(private val p: Params) : Runnable {
         override fun run() {
-            val defaultLocale = p.resSrcDirs.mapNotNull {
-                File(it, AppDetail.DEFAULT_LANGUAGE.fileName).orNull()
-                        ?.readText()?.normalized().nullOrFull()
-            }.lastOrNull() // Pick the most specialized option available. E.g. `paidProdRelease`
-
             val files = p.files
                     .filterNot { it.isDirectory }
                     .sortedBy { file ->
@@ -89,36 +84,39 @@ open class GenerateResources @Inject constructor(
                     }
                     .ifEmpty { return }
 
-            val changedDefaults = mutableListOf<File>()
             for (file in files) {
                 file.validate()
-
-                defaultLocale.nullOrFull()?.let {
-                    if (file.isChildOf(LISTINGS_PATH) && file.isChildOf(it)) {
-                        changedDefaults += file
-                    }
-                }
                 file.copy(file.findClosestDir().findDest())
             }
 
-            val writeQueue = mutableListOf<Action<Unit>>()
-            for (default in changedDefaults) {
-                val listings = default.findDest().climbUpTo(LISTINGS_PATH)!!
-                val relativePath = default.invariantSeparatorsPath.split("$defaultLocale/").last()
+            mergeLanguages(files)
+        }
 
-                listings.listFiles()
-                        .filter { it.name != defaultLocale }
-                        .map { File(it, relativePath) }
-                        .filterNot(File::exists)
-                        .filterNot(::hasGraphicCategory)
-                        .forEach {
-                            writeQueue += Action {
-                                default.copy(
-                                        File(p.resDir, it.parentFile.toRelativeString(p.resDir)))
-                            }
-                        }
+        private fun mergeLanguages(files: List<File>) {
+            val defaultLocale = p.resSrcDirs.mapNotNull {
+                File(it, AppDetail.DEFAULT_LANGUAGE.fileName).orNull()
+                        ?.readText()?.normalized().nullOrFull()
+            }.lastOrNull().nullOrFull() ?: return
+
+            val changedNonDefaultLocales = files.filter {
+                // Path spec: listings/*!defaultLocale/*
+                it.parentFile.isDirectChildOf(LISTINGS_PATH) && !it.isChildOf(defaultLocale)
+            }.map {
+                it.parentFile
+            }.distinct()
+
+            for (locale in changedNonDefaultLocales) {
+                val default = File(locale.parentFile, defaultLocale)
+
+                for (detail in ListingDetail.values()) {
+                    val defaultDetail = File(default, detail.fileName)
+                    if (defaultDetail.exists() && /*TODO change*/!File(locale,
+                                                                       detail.fileName).exists()
+                    ) {
+                        defaultDetail.copy(locale)
+                    }
+                }
             }
-            writeQueue.forEach { it.execute(Unit) }
         }
 
         private fun File.validate() {
