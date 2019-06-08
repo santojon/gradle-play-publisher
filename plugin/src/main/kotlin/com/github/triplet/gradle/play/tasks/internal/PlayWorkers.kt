@@ -160,10 +160,10 @@ internal abstract class ArtifactWorkerBase(
 
         if (updateFraction) {
             val status = extension.releaseStatus
-            userFraction = if (
-                    status == ReleaseStatus.IN_PROGRESS.publishedName ||
-                    status == ReleaseStatus.HALTED.publishedName
-            ) extension.userFraction else null
+            userFraction = extension.userFraction.takeIf {
+                status == ReleaseStatus.IN_PROGRESS.publishedName ||
+                        status == ReleaseStatus.HALTED.publishedName
+            }
         }
 
         return this
