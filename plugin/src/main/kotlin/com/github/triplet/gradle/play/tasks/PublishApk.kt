@@ -40,6 +40,8 @@ open class PublishApk @Inject constructor(
 
             return if (customDir == null) {
                 variant.outputs.filterIsInstance<ApkVariantOutput>().filter {
+                    println(it.outputType)
+                    println(it.filters)
                     OutputType.valueOf(it.outputType) == OutputType.MAIN || it.filters.isNotEmpty()
                 }.map { it.outputFile }
             } else {
